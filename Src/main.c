@@ -71,7 +71,7 @@ void Initial_encoder(void);
 void Limit_WS_trick(void);
 void Update_encoder(void);
 float Moving_average(float new_data, float old_data);
-
+float Butterworth_filter(float new_data);
 
 
 
@@ -337,8 +337,7 @@ void Update_encoder(void)
 	TIM3->CNT = 0x3fff ;
 	
 	Angle_pen += (float)tmp * Revo_Per_Step;
-	Angle_pen_dot = (Angle_pen - prev_angle) * sampling;
-	position_cart = Moving_average(Angle_pen_dot, prev_angle_dot);
+	Angle_pen_dot = Butterworth_filter((Angle_pen - prev_angle) * sampling);
 
 }
 
@@ -346,6 +345,23 @@ float Moving_average(float new_data, float old_data)
 {
 	float tmp =0.9f*old_data + 0.2f*(new_data - old_data);
 	return tmp;
+}
+float Butterworth_filter(float x_data)
+{
+	// lowpass filter butterworth order 2nd fc 20 hz sampling 200hz
+	static float y_data, y_prev_1, y_prev_2;
+	static float x_prev_1, x_prev_2;
+	
+	x_prev_2 = x_prev_1;
+	x_prev_1 = x_data ;
+	
+	y_prev_2 = y_prev_1;
+	y_prev_1 = y_data ;
+	
+	float nume = (1.0f * x_data + 2.0f * x_prev_1 + 1.0f * x_prev_2);
+	float denom = (- 1.1429804563522339f * y_prev_1 +  0.412801593542099f * y_prev_2);
+	y_data = 0.067455276846885681f *  nume - denom ;
+	return y_data;
 }
 void Limit_WS_trick(void)
 {
