@@ -35,6 +35,9 @@
 
 /* USER CODE BEGIN Includes */
 
+#define sampling 200.0f
+#define Revo_Per_Step 0.25f
+
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -66,8 +69,8 @@ static void MX_USART1_UART_Init(void);
 /* Private function prototypes -----------------------------------------------*/
 void Initial_encoder(void);
 void Limit_WS_trick(void);
-int16_t Encoder_read(void);
-
+void Update_encoder(void);
+float Moving_average(float new_data, float old_data);
 
 
 
@@ -120,8 +123,8 @@ int main(void)
 //		HAL_GPIO_TogglePin(GPIOF, GPIO_PIN_1);
 //		HAL_Delay(490);
 
-		Angle_pen += Encoder_read();
-		HAL_Delay(10);
+		Update_encoder();
+		HAL_Delay(5);
 		
   }
   /* USER CODE END 3 */
@@ -319,23 +322,31 @@ void Initial_encoder(void)
 {
 	TIM_Encoder_InitTypeDef hEncoder;
 	hEncoder.EncoderMode = TIM_ENCODERMODE_TI12 ;
-//	hEncoder.IC1Polarity = TIM_INPUTCHANNELPOLARITY_RISING;
-//	hEncoder.IC2Polarity = TIM_INPUTCHANNELPOLARITY_RISING;
 	HAL_TIM_Encoder_Init(&htim3,&hEncoder);
 	HAL_TIM_Encoder_Start(&htim3,TIM_CHANNEL_ALL);
 	TIM3->CNT = 0x3fff ;
 }
 
-int16_t Encoder_read(void)
+void Update_encoder(void)
 {
+	float prev_angle = Angle_pen;
+	float prev_angle_dot = position_cart;
 	int16_t tmp;
 
   tmp = TIM3->CNT - 0x3fff ;
 	TIM3->CNT = 0x3fff ;
-	return tmp;
+	
+	Angle_pen += (float)tmp * Revo_Per_Step;
+	Angle_pen_dot = (Angle_pen - prev_angle) * sampling;
+	position_cart = Moving_average(Angle_pen_dot, prev_angle_dot);
 
 }
 
+float Moving_average(float new_data, float old_data)
+{
+	float tmp =0.9f*old_data + 0.2f*(new_data - old_data);
+	return tmp;
+}
 void Limit_WS_trick(void)
 {
 	
