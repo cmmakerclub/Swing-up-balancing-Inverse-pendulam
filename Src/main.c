@@ -35,12 +35,17 @@
 
 /* USER CODE BEGIN Includes */
 
+#include "math.h"
+
 #define sampling 200.0f
 #define Revo_Per_Step 0.25f
 #define limit_angle 5.0f
 
-#define mm_Per_Step 100
-#define max_acc 		10.0f     			// mm/s^2
+#define step_clock  2000000.0f
+#define step_Per_mm 50.0f      			// step per mm 6.25, 12.5, 25, 50, 100 (full - 1/16)
+
+#define max_acc  10.0f     			// mm/s^2
+#define max_velo 500.0f   								// mm/s
 #define max_displacement 380.0f  		// mm
 
 
@@ -83,16 +88,23 @@ float Moving_average(float new_data, float old_data);
 float Butterworth_filter(float new_data);
 
 void Sampling_update(void);
-void Limit_WS_trick(void);
 void Motor_enable(void);
 void Motor_disable(void);
 void Motor_lock(void);
-void Motor_drive(float tmp_acc);
+void Motor_drive(float tmp_acc, float velo_limit);
+
+void Idle(void);
+void Homing(void);
+void Swing_up(void);
+void stabilizer(void);
 
 void _drive_step_pin(void);
 
+void blink_green(void);
+void blink_red(void);
 void Limit_ws_check(void);
 void Limit_ws_unlock(void);
+void Print_Debug(void);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -130,34 +142,22 @@ int main(void)
 	
 
 	
-	//Motor_enable();
+	Motor_enable();
 	//Motor_lock();
 	
+
 	HAL_TIM_Base_Start_IT(&htim14);
 	
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-	
-	
-	
-	
-	
+
   while (1)
   {
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
-//		HAL_GPIO_TogglePin(GPIOF, GPIO_PIN_0);
-//		HAL_Delay(10);
-//		HAL_GPIO_TogglePin(GPIOF, GPIO_PIN_0);
-//		HAL_Delay(490);
-//		HAL_GPIO_TogglePin(GPIOF, GPIO_PIN_1);
-//		HAL_Delay(10);
-//		HAL_GPIO_TogglePin(GPIOF, GPIO_PIN_1);
-//		HAL_Delay(490);
-
 
 		HAL_Delay(0xffff);
 		
@@ -247,7 +247,7 @@ void MX_TIM16_Init(void)
 {
 
   htim16.Instance = TIM16;
-  htim16.Init.Prescaler = 479;
+  htim16.Init.Prescaler = 23;
   htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim16.Init.Period = 0;
   htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -323,12 +323,59 @@ void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void Sampling_update (void)
 {
+	Limit_ws_check();
+	
 	Update_encoder();
 	
-	
-	
-	Limit_ws_check();
+	Homing();	
+
+
+
 }
+
+void Idle(void)									// free 
+{
+	Motor_disable();
+	Angle_pen = 0;
+	Angle_pen_dot = 0;
+
+	position_cart = 0;
+	position_cart_velo = 0;
+	position_cart_acc = 0;
+}
+
+void Homing(void)								// go to zero
+{
+	blink_green();  
+	if (_limit_state != 1)
+	{
+		Motor_drive(-30, 100); 			// homing
+	}else{
+		
+			if (position_cart < 190)
+			{
+				Motor_enable();						// enable motor
+				Motor_drive(30, 100);
+			}else{
+				Limit_ws_unlock();				// unlock limit 
+				Motor_lock();
+			}
+		
+	}
+}
+
+void Swing_up(void)							// energy control
+{
+	blink_red();
+}
+
+void stabilizer(void)						// balencing
+{
+	blink_green();  
+	blink_red();
+}
+			
+
 
 void Initial_encoder(void)
 {
@@ -373,10 +420,7 @@ float Butterworth_filter(float x_data)
 	y_data = 0.067455276846885681f * nume - denom;
 	return y_data;
 }
-void Limit_WS_trick(void)
-{
-	
-}
+
 void Motor_disable(void)
 {
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
@@ -393,11 +437,37 @@ void Motor_lock(void)
 	HAL_TIM_Base_Stop_IT(&htim16);
 }
 
-void Motor_drive(float tmp_acc)
+void Motor_drive(float tmp_acc, float velo_limit)
 {
-
-	TIM16->CNT = 10000;
+	float tmp_velo;
+	float tmp_abs_velo;
+	position_cart_velo += tmp_acc / sampling;															// intregrated
+	    
+	if (position_cart_velo > max_velo)  position_cart_velo = max_velo;		// protection
+	if (position_cart_velo < -max_velo) position_cart_velo = -max_velo;   // protection
 	
+	if (position_cart_velo > 0)
+	{
+		tmp_abs_velo = position_cart_velo;
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET);							// +x
+	}else{
+		tmp_abs_velo = -position_cart_velo;
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET);								// -x
+	}
+	
+	if (velo_limit > 0) 
+	{
+			if (tmp_abs_velo > velo_limit)  tmp_abs_velo = velo_limit;
+	}
+	
+	tmp_velo = step_clock / (step_Per_mm *2.0f) /  tmp_abs_velo;							// changing to period 
+	if (tmp_velo > 0xffff)  tmp_velo = 0xffff;														// protection													// protection
+	TIM16->ARR = tmp_velo;																								// write to register
+	
+	position_cart +=  position_cart_velo / sampling;
+	
+	if (position_cart > 400)  position_cart = 400;							// protection (mm)
+	if (position_cart < 0)    position_cart = 0;   							// protection (mm)
 }
 
 
@@ -405,10 +475,25 @@ void Motor_drive(float tmp_acc)
 
 void Limit_ws_check(void)
 {
-	if (( HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_SET) && _limit_state == 0)
+	HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_RESET);		// turn off led
+	HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1, GPIO_PIN_RESET);		// turn off led
+	
+	if( _limit_state == 0)
 	{
-		Motor_lock();
-		_limit_state = 1;
+		if ( HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET )
+		{
+			Motor_lock();
+			_limit_state = 1; 
+			position_cart = 0;
+			position_cart_velo = 0;
+		}
+		
+		if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_SET)
+		{
+			Motor_lock();
+			_limit_state = 2;
+			position_cart_velo = 0;
+		}
 	}
 	
 	if ( HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4) == GPIO_PIN_SET)
@@ -421,11 +506,43 @@ void Limit_ws_unlock(void)
 	_limit_state = 0;
 }
 
+void blink_green(void)
+{
+	static uint8_t count;
+	count++;
+	if (count > 20)
+	{
+		HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_SET);
+		count = 0;
+	}
+}
+
+void blink_red(void)
+{
+	static uint8_t count;
+	count++;
+	if (count > 21)
+	{
+		HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1, GPIO_PIN_SET);
+		count = 0;
+	}
+}
 void _drive_step_pin(void)
 {
 	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_9);
 }
 
+void Print_Debug(void)
+{
+    uint8_t header[2] = {0x7e, 0x7e};
+    uint8_t terminator[2] = {0xe7, 0xe7};
+
+    HAL_UART_Transmit(&huart1, header, 2, 1);    // sent header
+//    HAL_UART_Transmit(&huart1, (uint8_t *)&force, 4, 1);
+//    HAL_UART_Transmit(&huart1, (uint8_t *)&angle, 4, 1);
+//    HAL_UART_Transmit(&huart1, (uint8_t *)&position, 4, 1);
+    HAL_UART_Transmit(&huart1, terminator, 2, 1);    // sent header
+}
 /* USER CODE END 4 */
 
 #ifdef USE_FULL_ASSERT
