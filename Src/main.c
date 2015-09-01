@@ -63,6 +63,8 @@ float position_cart = 0;
 float position_cart_velo = 0;
 float position_cart_acc = 0;
 
+
+int8_t _limit_state;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -82,14 +84,15 @@ float Butterworth_filter(float new_data);
 
 void Sampling_update(void);
 void Limit_WS_trick(void);
-void Motor_anable(void);
+void Motor_enable(void);
 void Motor_disable(void);
 void Motor_lock(void);
-void Motor_drive(float acc);
+void Motor_drive(float tmp_acc);
 
 void _drive_step_pin(void);
 
-
+void Limit_ws_check(void);
+void Limit_ws_unlock(void);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -127,7 +130,7 @@ int main(void)
 	
 
 	
-	//Motor_anable();
+	//Motor_enable();
 	//Motor_lock();
 	
 	HAL_TIM_Base_Start_IT(&htim14);
@@ -156,7 +159,7 @@ int main(void)
 //		HAL_Delay(490);
 
 
-		HAL_Delay(5);
+		HAL_Delay(0xffff);
 		
   }
   /* USER CODE END 3 */
@@ -295,16 +298,10 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_LOW;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA0 PA1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  /*Configure GPIO pins : PA0 PA1 PA4 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_4;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA4 */
-  GPIO_InitStruct.Pin = GPIO_PIN_4;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA5 PA9 PA10 */
@@ -327,6 +324,10 @@ void MX_GPIO_Init(void)
 void Sampling_update (void)
 {
 	Update_encoder();
+	
+	
+	
+	Limit_ws_check();
 }
 
 void Initial_encoder(void)
@@ -380,7 +381,7 @@ void Motor_disable(void)
 {
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
 }
-void Motor_anable(void)
+void Motor_enable(void)
 {
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
 	TIM16->CNT = 0;
@@ -392,7 +393,7 @@ void Motor_lock(void)
 	HAL_TIM_Base_Stop_IT(&htim16);
 }
 
-void Motor_drive(float acc)
+void Motor_drive(float tmp_acc)
 {
 
 	TIM16->CNT = 10000;
@@ -402,11 +403,23 @@ void Motor_drive(float acc)
 
 
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+void Limit_ws_check(void)
 {
-	 Motor_lock();
+	if (( HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_SET) && _limit_state == 0)
+	{
+		Motor_lock();
+		_limit_state = 1;
+	}
+	
+	if ( HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_4) == GPIO_PIN_SET)
+	{
+		_limit_state = 0;
+	}
 }
-
+void Limit_ws_unlock(void)
+{
+	_limit_state = 0;
+}
 
 void _drive_step_pin(void)
 {
