@@ -80,6 +80,7 @@ void Update_encoder(void);
 float Moving_average(float new_data, float old_data);
 float Butterworth_filter(float new_data);
 
+void Sampling_update(void);
 void Limit_WS_trick(void);
 void Motor_anable(void);
 void Motor_disable(void);
@@ -99,7 +100,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+ 
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -119,11 +120,18 @@ int main(void)
 
   /* USER CODE BEGIN 2 */
 
+
 	Initial_encoder();
 	Motor_disable();
 	HAL_Delay(100);
+	
+
+	
 	//Motor_anable();
 	//Motor_lock();
+	
+	HAL_TIM_Base_Start_IT(&htim14);
+	
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -147,7 +155,7 @@ int main(void)
 //		HAL_GPIO_TogglePin(GPIOF, GPIO_PIN_1);
 //		HAL_Delay(490);
 
-		Update_encoder();
+
 		HAL_Delay(5);
 		
   }
@@ -295,7 +303,7 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : PA4 */
   GPIO_InitStruct.Pin = GPIO_PIN_4;
-  GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
@@ -316,6 +324,11 @@ void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void Sampling_update (void)
+{
+	Update_encoder();
+}
+
 void Initial_encoder(void)
 {
 	TIM_Encoder_InitTypeDef hEncoder;
@@ -328,16 +341,14 @@ void Initial_encoder(void)
 void Update_encoder(void)
 {
 	float prev_angle = Angle_pen;
-	float tmp_1;
-	int16_t tmp_2;
+	int16_t tmp;
 
-  tmp_2 = TIM3->CNT - 0x3fff ;
+  tmp = TIM3->CNT - 0x3fff ;
 	TIM3->CNT = 0x3fff ;
 	
-	Angle_pen += (float)tmp_2 * Revo_Per_Step;
-	tmp_1 = (prev_angle - Angle_pen) * sampling; 
-	Angle_pen_dot = Butterworth_filter(tmp_1);
-	position_cart = tmp_1 ;
+	Angle_pen += (float)tmp * Revo_Per_Step;
+	Angle_pen_dot = Butterworth_filter((Angle_pen - prev_angle) * sampling);
+	position_cart = tmp ;
 }
 
 float Moving_average(float new_data, float old_data)

@@ -38,7 +38,7 @@
 /* USER CODE BEGIN 0 */
 
 extern void _drive_step_pin(void);
-
+extern void Sampling_update(void);
 
 /* USER CODE END 0 */
 
@@ -82,7 +82,7 @@ void TIM14_IRQHandler(void)
   /* USER CODE END TIM14_IRQn 0 */
   HAL_TIM_IRQHandler(&htim14);
   /* USER CODE BEGIN TIM14_IRQn 1 */
-
+	Sampling_update();
   /* USER CODE END TIM14_IRQn 1 */
 }
 
