@@ -37,16 +37,21 @@
 
 #include "math.h"
 
-#define sampling 200.0f
+#define M_PI 3.142857142857143f
+#define Deg2Rad 0.0174603174603175f
+
+#define sampling 100.0f
 #define Revo_Per_Step 0.25f
 #define limit_angle 5.0f
 
 #define step_clock  2000000.0f
-#define step_Per_mm 50.0f      			// step per mm 6.25, 12.5, 25, 50, 100 (full - 1/16)
+#define step_Per_mm 25.0f      			// step per mm 6.25, 12.5, 25, 50, 100 (full - 1/16)
 
-#define max_acc  10.0f     			// mm/s^2
-#define max_velo 500.0f   								// mm/s
+#define max_acc  1000.0f     			// mm/s^2
+#define max_velo 5000.0f   								// mm/s
 #define max_displacement 380.0f  		// mm
+
+#define acc_swing_up     600.0f  		// mm
 
 
 /* USER CODE END Includes */
@@ -61,6 +66,8 @@ UART_HandleTypeDef huart1;
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
+uint8_t Mode = 0;
+
 float Angle_pen = 0;
 float Angle_pen_dot = 0;
 
@@ -68,6 +75,12 @@ float position_cart = 0;
 float position_cart_velo = 0;
 float position_cart_acc = 0;
 
+float energy = 0;
+
+float bangbang ;
+
+static float y_data, y_prev_1, y_prev_2;
+static float x_prev_1, x_prev_2;
 
 int8_t _limit_state;
 /* USER CODE END PV */
@@ -104,6 +117,7 @@ void blink_green(void);
 void blink_red(void);
 void Limit_ws_check(void);
 void Limit_ws_unlock(void);
+void reset_filter(void);
 void Print_Debug(void);
 /* USER CODE END PFP */
 
@@ -145,7 +159,7 @@ int main(void)
 	Motor_enable();
 	//Motor_lock();
 	
-
+	Mode = 1 ; 													// homing 
 	HAL_TIM_Base_Start_IT(&htim14);
 	
   /* USER CODE END 2 */
@@ -236,7 +250,7 @@ void MX_TIM14_Init(void)
   htim14.Instance = TIM14;
   htim14.Init.Prescaler = 47;
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 4999;
+  htim14.Init.Period = 9999;
   htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   HAL_TIM_Base_Init(&htim14);
 
@@ -327,12 +341,13 @@ void Sampling_update (void)
 	
 	Update_encoder();
 	
-	Homing();	
-
-
+	if (Mode == 1) Homing();	
+	if (Mode == 2) Swing_up();	
+	if (Mode == 3) stabilizer();	
 
 }
 
+// mode 0
 void Idle(void)									// free 
 {
 	Motor_disable();
@@ -344,31 +359,68 @@ void Idle(void)									// free
 	position_cart_acc = 0;
 }
 
-void Homing(void)								// go to zero
+// mode 1
+void Homing(void)								// go to zero  
 {
+	static float tmp;
+	
 	blink_green();  
-	if (_limit_state != 1)
+	
+	if (_limit_state != 1 && position_cart < 190)
 	{
-		Motor_drive(-30, 100); 			// homing
+		Motor_drive(-50, 200); 			// homing
 	}else{
 		
 			if (position_cart < 190)
 			{
 				Motor_enable();						// enable motor
-				Motor_drive(30, 100);
+				Motor_drive(50, 200);
 			}else{
 				Limit_ws_unlock();				// unlock limit 
 				Motor_lock();
+				
+				tmp = Moving_average(Angle_pen_dot, tmp);
+				if (tmp < 0.01f && tmp > -0.01f)
+				{
+					Angle_pen = 180;
+					Mode = 2;									// goto mode 2 Swing_up
+					Motor_enable();						// enable motor
+					reset_filter();
+					position_cart_velo = 0;
+				}
 			}
 		
 	}
 }
 
+// mode 2
 void Swing_up(void)							// energy control
 {
+	float poten = cosf(Angle_pen*Deg2Rad);
+	float kine  = fabsf(Angle_pen_dot);
+//	float bangbang ;
+	
 	blink_red();
+	
+	energy =  poten+ kine;  // mgh + (1/2)mv^2
+	bangbang = sinf(Angle_pen*Deg2Rad) ;//* Angle_pen_dot ;//* kine;
+	
+	if (bangbang > 0.3f || bangbang < -0.3f)
+	{
+			if (bangbang > 0)
+			{
+				Motor_drive(acc_swing_up, 100000); 
+			}else{
+				Motor_drive(-acc_swing_up, 100000);
+			}
+	}else{
+			Motor_drive(0 , 100000);
+	}
+	
+//	if (Angle_pen > 360 || Angle_pen < 0) Mode = 3;
 }
 
+// mode 3
 void stabilizer(void)						// balencing
 {
 	blink_green();  
@@ -406,8 +458,6 @@ float Moving_average(float new_data, float old_data)
 float Butterworth_filter(float x_data)
 {
 	// lowpass filter butterworth order 2nd fc 20 hz sampling 200hz
-	static float y_data, y_prev_1, y_prev_2;
-	static float x_prev_1, x_prev_2;
 	
 	x_prev_2 = x_prev_1;
 	x_prev_1 = x_data ;
@@ -435,6 +485,7 @@ void Motor_lock(void)
 {
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
 	HAL_TIM_Base_Stop_IT(&htim16);
+	position_cart_velo = 0;
 }
 
 void Motor_drive(float tmp_acc, float velo_limit)
@@ -532,6 +583,14 @@ void _drive_step_pin(void)
 	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_9);
 }
 
+void reset_filter(void)
+{
+	y_data = 0;
+	y_prev_1 = 0;
+	y_prev_2 = 0;
+	x_prev_1 = 0;
+	x_prev_2 = 0;
+}
 void Print_Debug(void)
 {
     uint8_t header[2] = {0x7e, 0x7e};
