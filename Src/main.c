@@ -40,7 +40,7 @@
 #define M_PI 3.142857142857143f
 #define Deg2Rad 0.0174603174603175f
 
-#define sampling 100.0f
+#define sampling 200.0f
 #define Revo_Per_Step 0.25f
 #define limit_angle 5.0f
 
@@ -250,7 +250,7 @@ void MX_TIM14_Init(void)
   htim14.Instance = TIM14;
   htim14.Init.Prescaler = 47;
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 9999;
+  htim14.Init.Period = 4999;
   htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   HAL_TIM_Base_Init(&htim14);
 
@@ -505,11 +505,13 @@ void Motor_drive(float tmp_acc, float velo_limit)
 		tmp_abs_velo = -position_cart_velo;
 		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET);								// -x
 	}
-	
-	if (velo_limit > 0) 
+
+	if (tmp_abs_velo > velo_limit)
 	{
-			if (tmp_abs_velo > velo_limit)  tmp_abs_velo = velo_limit;
+		tmp_abs_velo = velo_limit;
+		position_cart_velo = velo_limit;
 	}
+
 	
 	tmp_velo = step_clock / (step_Per_mm *2.0f) /  tmp_abs_velo;							// changing to period 
 	if (tmp_velo > 0xffff)  tmp_velo = 0xffff;														// protection													// protection
