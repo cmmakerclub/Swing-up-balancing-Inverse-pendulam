@@ -348,7 +348,6 @@ void Update_encoder(void)
 	
 	Angle_pen += (float)tmp * Revo_Per_Step;
 	Angle_pen_dot = Butterworth_filter((Angle_pen - prev_angle) * sampling);
-	position_cart = tmp ;
 }
 
 float Moving_average(float new_data, float old_data)
