@@ -37,13 +37,19 @@
 
 #define sampling 200.0f
 #define Revo_Per_Step 0.25f
+#define limit_angle 5.0f
+
+#define mm_Per_Step 100
+#define max_acc 		10.0f     			// mm/s^2
+#define max_displacement 380.0f  		// mm
+
 
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
-TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim14;
+TIM_HandleTypeDef htim16;
 
 UART_HandleTypeDef huart1;
 
@@ -52,27 +58,35 @@ UART_HandleTypeDef huart1;
 
 float Angle_pen = 0;
 float Angle_pen_dot = 0;
+
 float position_cart = 0;
-float position_cart_dot = 0;
+float position_cart_velo = 0;
+float position_cart_acc = 0;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_TIM1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM14_Init(void);
+static void MX_TIM16_Init(void);
 static void MX_USART1_UART_Init(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 void Initial_encoder(void);
-void Limit_WS_trick(void);
 void Update_encoder(void);
 float Moving_average(float new_data, float old_data);
 float Butterworth_filter(float new_data);
 
+void Limit_WS_trick(void);
+void Motor_anable(void);
+void Motor_disable(void);
+void Motor_lock(void);
+void Motor_drive(float acc);
+
+void _drive_step_pin(void);
 
 
 /* USER CODE END PFP */
@@ -98,17 +112,27 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_TIM1_Init();
   MX_TIM3_Init();
   MX_TIM14_Init();
+  MX_TIM16_Init();
   MX_USART1_UART_Init();
 
   /* USER CODE BEGIN 2 */
+
 	Initial_encoder();
+	Motor_disable();
+	HAL_Delay(100);
+	//Motor_anable();
+	//Motor_lock();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+	
+	
+	
+	
+	
   while (1)
   {
   /* USER CODE END WHILE */
@@ -165,46 +189,6 @@ void SystemClock_Config(void)
 
 }
 
-/* TIM1 init function */
-void MX_TIM1_Init(void)
-{
-
-  TIM_MasterConfigTypeDef sMasterConfig;
-  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig;
-  TIM_OC_InitTypeDef sConfigOC;
-
-  htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 0;
-  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 0;
-  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim1.Init.RepetitionCounter = 0;
-  HAL_TIM_PWM_Init(&htim1);
-
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig);
-
-  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
-  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
-  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 0;
-  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
-  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
-  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
-  HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig);
-
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
-  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-  HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2);
-
-}
-
 /* TIM3 init function */
 void MX_TIM3_Init(void)
 {
@@ -239,11 +223,25 @@ void MX_TIM14_Init(void)
 {
 
   htim14.Instance = TIM14;
-  htim14.Init.Prescaler = 0;
+  htim14.Init.Prescaler = 47;
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 0;
+  htim14.Init.Period = 4999;
   htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   HAL_TIM_Base_Init(&htim14);
+
+}
+
+/* TIM16 init function */
+void MX_TIM16_Init(void)
+{
+
+  htim16.Instance = TIM16;
+  htim16.Init.Prescaler = 479;
+  htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim16.Init.Period = 0;
+  htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim16.Init.RepetitionCounter = 0;
+  HAL_TIM_Base_Init(&htim16);
 
 }
 
@@ -252,7 +250,7 @@ void MX_USART1_UART_Init(void)
 {
 
   huart1.Instance = USART1;
-  huart1.Init.BaudRate = 38400;
+  huart1.Init.BaudRate = 115200;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
@@ -297,12 +295,12 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : PA4 */
   GPIO_InitStruct.Pin = GPIO_PIN_4;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA5 PA10 */
-  GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_10;
+  /*Configure GPIO pins : PA5 PA9 PA10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_9|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_LOW;
@@ -330,15 +328,16 @@ void Initial_encoder(void)
 void Update_encoder(void)
 {
 	float prev_angle = Angle_pen;
-	float prev_angle_dot = position_cart;
-	int16_t tmp;
+	float tmp_1;
+	int16_t tmp_2;
 
-  tmp = TIM3->CNT - 0x3fff ;
+  tmp_2 = TIM3->CNT - 0x3fff ;
 	TIM3->CNT = 0x3fff ;
 	
-	Angle_pen += (float)tmp * Revo_Per_Step;
-	Angle_pen_dot = Butterworth_filter((Angle_pen - prev_angle) * sampling);
-
+	Angle_pen += (float)tmp_2 * Revo_Per_Step;
+	tmp_1 = (prev_angle - Angle_pen) * sampling; 
+	Angle_pen_dot = Butterworth_filter(tmp_1);
+	position_cart = tmp_1 ;
 }
 
 float Moving_average(float new_data, float old_data)
@@ -358,15 +357,52 @@ float Butterworth_filter(float x_data)
 	y_prev_2 = y_prev_1;
 	y_prev_1 = y_data ;
 	
-	float nume = (1.0f * x_data + 2.0f * x_prev_1 + 1.0f * x_prev_2);
+	float nume = (x_data + 2.0f * x_prev_1 +  x_prev_2);
 	float denom = (- 1.1429804563522339f * y_prev_1 +  0.412801593542099f * y_prev_2);
-	y_data = 0.067455276846885681f *  nume - denom ;
+	y_data = 0.067455276846885681f * nume - denom;
 	return y_data;
 }
 void Limit_WS_trick(void)
 {
 	
 }
+void Motor_disable(void)
+{
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+}
+void Motor_anable(void)
+{
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
+	TIM16->CNT = 0;
+	HAL_TIM_Base_Start_IT(&htim16);
+}
+void Motor_lock(void)
+{
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
+	HAL_TIM_Base_Stop_IT(&htim16);
+}
+
+void Motor_drive(float acc)
+{
+
+	TIM16->CNT = 10000;
+	
+}
+
+
+
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	 Motor_lock();
+}
+
+
+void _drive_step_pin(void)
+{
+	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_9);
+}
+
 /* USER CODE END 4 */
 
 #ifdef USE_FULL_ASSERT
