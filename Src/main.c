@@ -45,13 +45,13 @@
 #define limit_angle 5.0f
 
 #define step_clock  2000000.0f
-#define step_Per_mm 25.0f      			// step per mm 6.25, 12.5, 25, 50, 100 (full - 1/16)
+#define step_Per_mm 12.5f      			// step per mm 6.25, 12.5, 25, 50, 100 (full - 1/16)
 
 #define max_acc  1000.0f     			// mm/s^2
 #define max_velo 5000.0f   								// mm/s
 #define max_displacement 380.0f  		// mm
 
-#define acc_swing_up     600.0f  		// mm
+#define acc_swing_up     500.0f  		// mm
 
 
 /* USER CODE END Includes */
@@ -67,10 +67,11 @@ UART_HandleTypeDef huart1;
 /* Private variables ---------------------------------------------------------*/
 
 uint8_t Mode = 0;
-
-float Angle_pen = 0;
+uint8_t inte_cart_enable = 0;
+float Angle_pen = 180;
 float Angle_pen_dot = 0;
 
+int32_t raw_position_cart = 0;
 float position_cart = 0;
 float position_cart_velo = 0;
 float position_cart_acc = 0;
@@ -295,7 +296,7 @@ void MX_USART1_UART_Init(void)
         * EVENT_OUT
         * EXTI
 */
-void MX_GPIO_Init(void)
+void MX_GPIO_Init(void) 
 {
 
   GPIO_InitTypeDef GPIO_InitStruct;
@@ -368,21 +369,22 @@ void Homing(void)								// go to zero
 	
 	if (_limit_state != 1 && position_cart < 190)
 	{
-		Motor_drive(-50, 200); 			// homing
+		inte_cart_enable = 0;
+		Motor_drive(-100, 200); 			// homing
 	}else{
-		
+		  inte_cart_enable = 1;
 			if (position_cart < 190)
 			{
 				Motor_enable();						// enable motor
-				Motor_drive(50, 200);
+				Motor_drive(1000, 500);
 			}else{
 				Limit_ws_unlock();				// unlock limit 
 				Motor_lock();
 				
 				tmp = Moving_average(Angle_pen_dot, tmp);
-				if (tmp < 0.01f && tmp > -0.01f)
+				if (tmp < 0.34f && tmp > -0.34f)
 				{
-					Angle_pen = 180;
+//					Angle_pen = 180;
 					Mode = 2;									// goto mode 2 Swing_up
 					Motor_enable();						// enable motor
 					reset_filter();
@@ -398,20 +400,21 @@ void Swing_up(void)							// energy control
 {
 	float poten = cosf(Angle_pen*Deg2Rad);
 	float kine  = fabsf(Angle_pen_dot);
+  float Kcenter = (190 - position_cart) * 0.0f ;
 //	float bangbang ;
 	
 	blink_red();
 	
-	energy =  poten+ kine;  // mgh + (1/2)mv^2
-	bangbang = sinf(Angle_pen*Deg2Rad) ;//* Angle_pen_dot ;//* kine;
+	energy =  poten + kine;  // mgh + (1/2)mv^2
+	bangbang = poten * Angle_pen_dot;//* Angle_pen_dot ;//* kine;
 	
-	if (bangbang > 0.3f || bangbang < -0.3f)
+	if (bangbang > 0.005f || bangbang < -0.005f)
 	{
 			if (bangbang > 0)
 			{
-				Motor_drive(acc_swing_up, 100000); 
+				Motor_drive(-acc_swing_up - Kcenter , 500); 
 			}else{
-				Motor_drive(-acc_swing_up, 100000);
+				Motor_drive( acc_swing_up + Kcenter, 500);
 			}
 	}else{
 			Motor_drive(0 , 100000);
@@ -512,15 +515,27 @@ void Motor_drive(float tmp_acc, float velo_limit)
 		position_cart_velo = velo_limit;
 	}
 
-	
+	position_cart =  raw_position_cart / (step_Per_mm *2.0f);	
+
 	tmp_velo = step_clock / (step_Per_mm *2.0f) /  tmp_abs_velo;							// changing to period 
+	
+		if (Mode == 2)
+	{
+		 if (position_cart < 50 && position_cart_velo < 0)
+		 {
+			 position_cart_velo = 0;
+			 tmp_velo = 0;
+		 }
+		 
+		 if (position_cart > 330 && position_cart_velo > 0)
+		 {
+			 position_cart_velo = 0; 
+			 tmp_velo = 0;
+		 }
+	}
 	if (tmp_velo > 0xffff)  tmp_velo = 0xffff;														// protection													// protection
 	TIM16->ARR = tmp_velo;																								// write to register
 	
-	position_cart +=  position_cart_velo / sampling;
-	
-	if (position_cart > 400)  position_cart = 400;							// protection (mm)
-	if (position_cart < 0)    position_cart = 0;   							// protection (mm)
 }
 
 
@@ -537,7 +552,8 @@ void Limit_ws_check(void)
 		{
 			Motor_lock();
 			_limit_state = 1; 
-			position_cart = 0;
+			raw_position_cart = 0;
+			position_cart     = 0;
 			position_cart_velo = 0;
 		}
 		
@@ -583,6 +599,15 @@ void blink_red(void)
 void _drive_step_pin(void)
 {
 	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_9);
+	if (inte_cart_enable != 0)
+	{
+		if(position_cart_velo >= 0)
+		{
+			raw_position_cart++;
+		}else{
+			raw_position_cart--;
+		}
+	}
 }
 
 void reset_filter(void)
