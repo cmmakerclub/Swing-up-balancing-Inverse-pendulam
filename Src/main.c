@@ -45,7 +45,7 @@
 #define limit_angle 5.0f
 
 #define step_clock  2000000.0f
-#define step_Per_mm 12.5f      			// step per mm 6.25, 12.5, 25, 50, 100 (full - 1/16)
+#define step_Per_mm 50.0f      			// step per mm 6.25, 12.5, 25, 50, 100 (full - 1/16)
 
 #define max_acc  1000.0f     			// mm/s^2
 #define max_velo 5000.0f   								// mm/s
@@ -53,6 +53,7 @@
 
 #define acc_swing_up     500.0f  		// mm
 
+#define start_cart_position -190.0f * step_Per_mm * 2.0f 
 
 /* USER CODE END Includes */
 
@@ -66,12 +67,16 @@ UART_HandleTypeDef huart1;
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
+float Debug;
+
+double time = 0;
+
 uint8_t Mode = 0;
 uint8_t inte_cart_enable = 0;
 float Angle_pen = 180;
 float Angle_pen_dot = 0;
 
-int32_t raw_position_cart = 0;
+int32_t raw_position_cart = start_cart_position;
 float position_cart = 0;
 float position_cart_velo = 0;
 float position_cart_acc = 0;
@@ -120,6 +125,8 @@ void Limit_ws_check(void);
 void Limit_ws_unlock(void);
 void reset_filter(void);
 void Print_Debug(void);
+void test(void);
+
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -130,7 +137,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
- 
+	position_cart = raw_position_cart / (step_Per_mm *2.0f);	
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -338,6 +345,7 @@ void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void Sampling_update (void)
 {
+	time += 0.005;
 	Limit_ws_check();
 	
 	Update_encoder();
@@ -345,7 +353,7 @@ void Sampling_update (void)
 	if (Mode == 1) Homing();	
 	if (Mode == 2) Swing_up();	
 	if (Mode == 3) stabilizer();	
-
+	if (Mode == 4) test();	
 }
 
 // mode 0
@@ -367,13 +375,13 @@ void Homing(void)								// go to zero
 	
 	blink_green();  
 	
-	if (_limit_state != 1 && position_cart < 190)
+	if (_limit_state != 1 && position_cart < 0)
 	{
 		inte_cart_enable = 0;
-		Motor_drive(-100, 200); 			// homing
+		Motor_drive(-100, 1000); 			// homing
 	}else{
 		  inte_cart_enable = 1;
-			if (position_cart < 190)
+			if (position_cart < 0)
 			{
 				Motor_enable();						// enable motor
 				Motor_drive(1000, 500);
@@ -385,7 +393,7 @@ void Homing(void)								// go to zero
 				if (tmp < 0.34f && tmp > -0.34f)
 				{
 //					Angle_pen = 180;
-					Mode = 2;									// goto mode 2 Swing_up
+					Mode = 4;									// goto mode 2 Swing_up
 					Motor_enable();						// enable motor
 					reset_filter();
 					position_cart_velo = 0;
@@ -400,7 +408,7 @@ void Swing_up(void)							// energy control
 {
 	float poten = cosf(Angle_pen*Deg2Rad);
 	float kine  = fabsf(Angle_pen_dot);
-  float Kcenter = (190 - position_cart) * 0.0f ;
+
 //	float bangbang ;
 	
 	blink_red();
@@ -412,12 +420,12 @@ void Swing_up(void)							// energy control
 	{
 			if (bangbang > 0)
 			{
-				Motor_drive(-acc_swing_up - Kcenter , 500); 
+				Motor_drive(-acc_swing_up, 500); 
 			}else{
-				Motor_drive( acc_swing_up + Kcenter, 500);
+				Motor_drive( acc_swing_up, 500);
 			}
 	}else{
-			Motor_drive(0 , 100000);
+			Motor_drive(0 , 1000);
 	}
 	
 //	if (Angle_pen > 360 || Angle_pen < 0) Mode = 3;
@@ -430,7 +438,12 @@ void stabilizer(void)						// balencing
 	blink_red();
 }
 			
-
+void test(void)						// balencing
+{
+	float force = -300.0f * cosf ( time * M_PI * 1.0f *( 1.0f + time/20.0f) ) ;
+	Motor_drive(force, 2000);
+	Debug =  force;
+}
 
 void Initial_encoder(void)
 {
@@ -446,7 +459,7 @@ void Update_encoder(void)
 	float prev_angle = Angle_pen;
 	int16_t tmp;
 
-  tmp = TIM3->CNT - 0x3fff ;
+	tmp = TIM3->CNT - 0x3fff ;
 	TIM3->CNT = 0x3fff ;
 	
 	Angle_pen += (float)tmp * Revo_Per_Step;
@@ -493,9 +506,21 @@ void Motor_lock(void)
 
 void Motor_drive(float tmp_acc, float velo_limit)
 {
-	float tmp_velo;
-	float tmp_abs_velo;
-	position_cart_velo += tmp_acc / sampling;															// intregrated
+	float tmp_velo = 0;
+	float tmp_abs_velo = 0;
+	float velo_trim  = 0;
+	float tmp_position_cart  = 0;
+	
+		if (Mode == 2 || Mode == 4)
+		{
+			velo_trim = (- position_cart * 0.2f) - position_cart_velo *0.2f   ;
+			Debug = velo_trim ; 
+
+		}else{
+			velo_trim = 0;
+		}
+	
+	position_cart_velo += (tmp_acc + velo_trim) / sampling; 								// intregrated
 	    
 	if (position_cart_velo > max_velo)  position_cart_velo = max_velo;		// protection
 	if (position_cart_velo < -max_velo) position_cart_velo = -max_velo;   // protection
@@ -519,21 +544,9 @@ void Motor_drive(float tmp_acc, float velo_limit)
 
 	tmp_velo = step_clock / (step_Per_mm *2.0f) /  tmp_abs_velo;							// changing to period 
 	
-		if (Mode == 2)
-	{
-		 if (position_cart < 50 && position_cart_velo < 0)
-		 {
-			 position_cart_velo = 0;
-			 tmp_velo = 0;
-		 }
-		 
-		 if (position_cart > 330 && position_cart_velo > 0)
-		 {
-			 position_cart_velo = 0; 
-			 tmp_velo = 0;
-		 }
-	}
+
 	if (tmp_velo > 0xffff)  tmp_velo = 0xffff;														// protection													// protection
+	TIM16->CNT = 0;	
 	TIM16->ARR = tmp_velo;																								// write to register
 	
 }
@@ -552,8 +565,8 @@ void Limit_ws_check(void)
 		{
 			Motor_lock();
 			_limit_state = 1; 
-			raw_position_cart = 0;
-			position_cart     = 0;
+			raw_position_cart = start_cart_position;
+			position_cart     = raw_position_cart / (step_Per_mm *2.0f);	;
 			position_cart_velo = 0;
 		}
 		
