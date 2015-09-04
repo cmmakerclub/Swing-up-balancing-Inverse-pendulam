@@ -51,9 +51,11 @@
 #define max_velo 5000.0f   								// mm/s
 #define max_displacement 380.0f  		// mm
 
-#define acc_swing_up     500.0f  		// mm
+#define acc_swing_up     1500.0f  		// mm
 
 #define start_cart_position -190.0f * step_Per_mm * 2.0f 
+
+#define start_swing_upPoint  100
 
 /* USER CODE END Includes */
 
@@ -375,13 +377,13 @@ void Homing(void)								// go to zero
 	
 	blink_green();  
 	
-	if (_limit_state != 1 && position_cart < 0)
+	if (_limit_state != 1 && position_cart < start_swing_upPoint)
 	{
 		inte_cart_enable = 0;
 		Motor_drive(-100, 1000); 			// homing
 	}else{
 		  inte_cart_enable = 1;
-			if (position_cart < 0)
+			if (position_cart < start_swing_upPoint)
 			{
 				Motor_enable();						// enable motor
 				Motor_drive(1000, 500);
@@ -393,7 +395,7 @@ void Homing(void)								// go to zero
 				if (tmp < 0.34f && tmp > -0.34f)
 				{
 //					Angle_pen = 180;
-					Mode = 4;									// goto mode 2 Swing_up
+					Mode = 2;									// goto mode 2 Swing_up
 					Motor_enable();						// enable motor
 					reset_filter();
 					position_cart_velo = 0;
@@ -420,9 +422,9 @@ void Swing_up(void)							// energy control
 	{
 			if (bangbang > 0)
 			{
-				Motor_drive(-acc_swing_up, 500); 
+				Motor_drive(acc_swing_up, 500); 
 			}else{
-				Motor_drive( acc_swing_up, 500);
+				Motor_drive( -acc_swing_up, 500);
 			}
 	}else{
 			Motor_drive(0 , 1000);
@@ -440,7 +442,7 @@ void stabilizer(void)						// balencing
 			
 void test(void)						// balencing
 {
-	float force = -300.0f * cosf ( time * M_PI * 1.0f *( 1.0f + time/20.0f) ) ;
+	float force = -600.0f * cosf ( time * M_PI * 1.0f *( 1.0f + time/20.0f) ) ;
 	Motor_drive(force, 2000);
 	Debug =  force;
 }
@@ -513,7 +515,7 @@ void Motor_drive(float tmp_acc, float velo_limit)
 	
 		if (Mode == 2 || Mode == 4)
 		{
-			velo_trim = (- position_cart * 0.2f) - position_cart_velo *0.2f   ;
+			velo_trim = (- position_cart * 0.2f) - position_cart_velo *0.25f   ;
 			Debug = velo_trim ; 
 
 		}else{
