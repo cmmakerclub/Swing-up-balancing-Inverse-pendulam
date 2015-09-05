@@ -53,21 +53,23 @@
 #define max_velo 700.0f   				// mm/s
 #define max_displacement 380.0f  		// mm
 
-#define acc_swing_up     1100.0f  		// mm
+#define acc_swing_up     1050.0f  		// mm
 
 #define start_cart_position -190.0f * step_Per_mm * 2.0f 
 
 #define start_swing_upPoint  0
 
-#define Max_stabili_angle  20
+#define Max_stabili_angle  15.0f
 
 float Kp_outer = 0.01;
 float Kd_outer = 0.007;
 float Ki_outer = 0.0001; //0.01f
 
-float Kp_iner = 1000.0;
-float Kd_iner = 65.0;
+//float Kp_iner = 1000.0;
+//float Kd_iner = 65.0;
 
+float Kp_iner = 500.0;
+float Kd_iner = 60.0;
 
 /* USER CODE END Includes */
 
@@ -83,13 +85,16 @@ UART_HandleTypeDef huart1;
 
 float Debug;
 
-double time = 0;
+float time = 0;
 uint8_t block = 0;									// block swing-up direction													
 uint8_t Mode = 0;								// operation mode 
 uint8_t inte_cart_enable = 0;					// enable or disable intregetion
-float Angle_pen = 0;
 
-//float Angle_pen = 180;
+
+float positon_ref;	
+
+
+float Angle_pen = 180;
 
 float Angle_pen_dot = 0;
 float Angle_pen_shift = 0;
@@ -131,6 +136,7 @@ void Idle(void);
 void Homing(void);
 void pre_Swing_up(void);
 void Swing_up(void);
+void pre_stabilizer(void);
 void stabilizer(void);
 
 void _drive_step_pin(void);
@@ -154,9 +160,12 @@ int main(void)
 	
   /* USER CODE BEGIN 1 */
 	
-	inte_cart_enable = 1;
-	raw_position_cart = 0;
+	Mode = 1; 						// homing 
 	
+//	Mode = 5; 
+//	inte_cart_enable = 1;
+//	raw_position_cart = 0;
+//	Angle_pen = 0;
 	
 	position_cart = raw_position_cart / (step_Per_mm *2.0f);	
   /* USER CODE END 1 */
@@ -181,14 +190,14 @@ int main(void)
 
 	Initial_encoder();
 	Motor_disable();
-	HAL_Delay(100);
+	HAL_Delay(200);
 	
 
 	
 	Motor_enable();
 	//Motor_lock();
 	
-	Mode = 4; 													// homing 
+
 	HAL_TIM_Base_Start_IT(&htim14);
 	
   /* USER CODE END 2 */
@@ -370,12 +379,13 @@ void Sampling_update (void)
 	Limit_ws_check();
 	
 	Update_encoder();
-	
+	if (Mode == 0) Idle();	
 	if (Mode == 1) Homing();	
 	if (Mode == 2) pre_Swing_up();
 	if (Mode == 3) Swing_up();	
-	if (Mode == 4) stabilizer();	
-	if (Mode == 5) test();	
+	if (Mode == 4) pre_stabilizer();
+	if (Mode == 5) stabilizer();	
+	if (Mode == 6) test();	
 }
 
 // mode 0
@@ -441,13 +451,10 @@ void Swing_up(void)							// energy control
 {
 
 	float poten = cosf(Angle_pen*Deg2Rad);
-	float kine  = fabsf(Angle_pen_dot);
-	float bangbang ;
 	
 	blink_red();
 	
-	energy =  poten + kine;  // mgh + (1/2)mv^2
-	bangbang = poten * Angle_pen_dot;//* Angle_pen_dot ;//* kine;
+	float bangbang = poten * Angle_pen_dot;
 	
 	{
 		if (bangbang > 0.005f || bangbang < -0.005f)
@@ -463,42 +470,49 @@ void Swing_up(void)							// energy control
 		}
 	}
 	
-	if (Angle_pen > 355)
+	if (Angle_pen > 357.5f)
 	{
 		Mode = 4;
-		Angle_pen_shift = 360 ;
+		Angle_pen_shift = 360.0f ;
+
 	}
 	
-	if (Angle_pen < 5)
+	if (Angle_pen < 2.5f)
 	{
 		Mode = 4;
-		Angle_pen_shift = 0 ;
+		Angle_pen_shift = 0.0f ;
+
 	}
 }
-
 // mode 4
+void pre_stabilizer(void)
+{
+	positon_ref = position_cart;
+	Mode = 5;
+	time = 0;	
+}
+// mode 5
 void stabilizer(void)						// balencing
 {
 	
 	blink_green();  
-	blink_red();
-	static float error_position_tmp;	
+	float error_position_tmp;	
 	static float error_position;	
 	static float error_position_dot;	
 	static float error_position_sum;	
 	static float error;	
-	static float error_tmp;
+	float error_tmp;
 	static float error_dot;	
 	static float error_sum;
-	static float u_control;
-	static float positon_ref;	
-	static float angle_ref;		
+	float u_control;		
+	float angle_ref;		
 	
 	
-	if (Angle_pen < Max_stabili_angle || Angle_pen > -Max_stabili_angle)
+	if ((Angle_pen < Max_stabili_angle || Angle_pen > -Max_stabili_angle) && time < 20)
 	{
 		error_position_tmp = error_position;
 		error_position = position_cart - positon_ref;
+
 		error_position_dot = (error_position - error_position_tmp )* sampling ;
 		error_position_sum += error_position / sampling;
 		
@@ -509,6 +523,7 @@ void stabilizer(void)						// balencing
 		error_tmp = error;
 
 		error = angle_ref-(Angle_pen - Angle_pen_shift);
+		Debug = error;
 		error_dot = (error - error_tmp) * sampling;
 
 		error_sum += error_tmp / sampling ;
@@ -516,21 +531,21 @@ void stabilizer(void)						// balencing
 		
 		
 		u_control = (error * Kp_iner) + (error_dot * Kd_iner) ;
+		Debug = u_control;
+		if (u_control > 3500) u_control = 3500;
+		if (u_control < -3500) u_control = -3500;
 		Motor_drive( u_control, max_velo);
-		
-		
-		
-		
-	}else{
 
+	}else{
+		Mode = 0;
 	}
 }
 			
 void test(void)						// balencing
 {
-	float force = -2000.0f * cosf ( time * M_PI * 1.0f *( 1.0f + time/20.0f) ) ;
-	Motor_drive(force, max_velo);
-	Debug =  force;
+//	float force = -2000.0f * cosf ( time * M_PI * 1.0f *( 1.0f + time/20.0f) ) ;
+//	Motor_drive(force, max_velo);
+//	Debug =  force;
 }
 
 void Initial_encoder(void)
@@ -579,6 +594,7 @@ float Butterworth_filter(float x_data)
 void Motor_disable(void)
 {
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+	HAL_TIM_Base_Stop_IT(&htim16);
 }
 void Motor_enable(void)
 {
