@@ -53,11 +53,20 @@
 #define max_velo 700.0f   				// mm/s
 #define max_displacement 380.0f  		// mm
 
-#define acc_swing_up     1200.0f  		// mm
+#define acc_swing_up     1100.0f  		// mm
 
 #define start_cart_position -190.0f * step_Per_mm * 2.0f 
 
 #define start_swing_upPoint  0
+
+#define Max_stabili_angle  20
+
+#define Kp_outer  0
+#define Ki_outer  0
+
+float Kp_iner = 500;
+float Kd_iner = 0;
+
 
 /* USER CODE END Includes */
 
@@ -77,9 +86,12 @@ double time = 0;
 uint8_t block = 0;									// block swing-up direction													
 uint8_t Mode = 0;								// operation mode 
 uint8_t inte_cart_enable = 0;					// enable or disable intregetion
-float Angle_pen = 180;
-float Angle_pen_dot = 0;
+float Angle_pen = 0;
 
+//float Angle_pen = 180;
+
+float Angle_pen_dot = 0;
+float Angle_pen_shift = 0;
 int32_t raw_position_cart = start_cart_position;
 float position_cart = 0;
 float position_cart_velo = 0;
@@ -170,7 +182,7 @@ int main(void)
 	Motor_enable();
 	//Motor_lock();
 	
-	Mode = 1 ; 													// homing 
+	Mode = 4; 													// homing 
 	HAL_TIM_Base_Start_IT(&htim14);
 	
   /* USER CODE END 2 */
@@ -431,7 +443,6 @@ void Swing_up(void)							// energy control
 	energy =  poten + kine;  // mgh + (1/2)mv^2
 	bangbang = poten * Angle_pen_dot;//* Angle_pen_dot ;//* kine;
 	
-//	if (block == 0)
 	{
 		if (bangbang > 0.005f || bangbang < -0.005f)
 		{
@@ -446,14 +457,52 @@ void Swing_up(void)							// energy control
 		}
 	}
 	
-//	if (Angle_pen > 360 || Angle_pen < 0) Mode = 4;
+	if (Angle_pen > 355)
+	{
+		Mode = 4;
+		Angle_pen_shift = 360 ;
+	}
+	
+	if (Angle_pen < 5)
+	{
+		Mode = 4;
+		Angle_pen_shift = 0 ;
+	}
 }
 
 // mode 4
 void stabilizer(void)						// balencing
 {
+	
 	blink_green();  
 	blink_red();
+	static float error;	
+	static float error_tmp;
+	static float error_dot;	
+	static float error_sum;
+	static float u_control;
+	
+	
+	if (Angle_pen < Max_stabili_angle || Angle_pen > -Max_stabili_angle)
+	{
+		error_tmp = error;
+		
+		error = -(Angle_pen - Angle_pen_shift);
+		error_dot = (error - error_tmp) * sampling;
+
+		error_sum += error_tmp / sampling ;
+		
+		
+		
+		u_control = (error * Kd_iner) + (error_dot * Kd_iner) ;
+		Motor_drive( u_control, max_velo);
+		
+		
+		
+		
+	}else{
+
+	}
 }
 			
 void test(void)						// balencing
