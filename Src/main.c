@@ -53,7 +53,7 @@
 #define max_velo 700.0f   				// mm/s
 #define max_displacement 380.0f  		// mm
 
-#define acc_swing_up     1000.0f  		// mm
+#define acc_swing_up     1200.0f  		// mm
 
 #define start_cart_position -190.0f * step_Per_mm * 2.0f 
 
