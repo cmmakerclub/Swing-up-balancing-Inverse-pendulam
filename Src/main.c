@@ -53,7 +53,7 @@
 #define max_velo 700.0f   				// mm/s
 #define max_displacement 380.0f  		// mm
 
-#define acc_swing_up     1300.0f  		// mm
+#define acc_swing_up     1000.0f  		// mm
 
 #define start_cart_position -190.0f * step_Per_mm * 2.0f 
 
@@ -382,19 +382,19 @@ void Homing(void)								// go to zero
 	if (_limit_state != 1 && position_cart < start_swing_upPoint)
 	{
 		inte_cart_enable = 0;
-		Motor_drive(-100, 200); 			// homing
+		Motor_drive(-100, 100); 			// homing
 	}else{
 		  inte_cart_enable = 1;
 			if (position_cart < start_swing_upPoint)
 			{
 				Motor_enable();						// enable motor
-				Motor_drive(100, 200);
+				Motor_drive(100, 100);
 			}else{
 				Limit_ws_unlock();				// unlock limit 
 				Motor_lock();
 				
 				tmp = Moving_average(Angle_pen_dot, tmp);
-				if (tmp < 0.34f && tmp > -0.34f)
+				if (tmp < 0.2f && tmp > -0.2f)
 				{
 					time = 0;							// reset time
 					Mode = 2;									// goto mode 2 Swing_up
@@ -414,6 +414,8 @@ void pre_Swing_up(void)							// Feed forward
 	float force = -900.0f * cosf ( time * M_PI * 2.0f / Wn ) ;
 	Motor_drive(force, max_velo);
 	Debug =  force;
+	
+	if (Angle_pen > 220 || Angle_pen < 135) Mode = 3 ;	 
 }
 
 // mode 3
@@ -429,9 +431,7 @@ void Swing_up(void)							// energy control
 	energy =  poten + kine;  // mgh + (1/2)mv^2
 	bangbang = poten * Angle_pen_dot;//* Angle_pen_dot ;//* kine;
 	
-	if (block == 1 && Angle_pen_dot > 25 && Angle_pen < 0) block = 0;
-	
-	if (block == 0)
+//	if (block == 0)
 	{
 		if (bangbang > 0.005f || bangbang < -0.005f)
 		{
@@ -530,9 +530,9 @@ void Motor_drive(float tmp_acc, float velo_limit)
 	float velo_trim  = 0;
 
 	
-		if (Mode == 2 || Mode == 3 || Mode == 4)
+		if (Mode == 2 || Mode == 3 || Mode == 5)
 		{
-			velo_trim = (- position_cart * 0.2f) - position_cart_velo *0.25f   ;
+			velo_trim = (- position_cart * 0.5f) - position_cart_velo *0.35f   ;
 
 
 		}else{
