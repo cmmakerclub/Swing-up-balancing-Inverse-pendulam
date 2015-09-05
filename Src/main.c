@@ -449,9 +449,11 @@ void pre_Swing_up(void)							// Feed forward
 // mode 3
 void Swing_up(void)							// energy control
 {
-
+	float Angle_pen_dot_Rad = Angle_pen_dot*Deg2Rad;
 	float poten = cosf(Angle_pen*Deg2Rad);
 	
+	float energy = poten + Angle_pen_dot_Rad*Angle_pen_dot_Rad;
+	Debug = energy;
 	blink_red();
 	
 	float bangbang = poten * Angle_pen_dot;
