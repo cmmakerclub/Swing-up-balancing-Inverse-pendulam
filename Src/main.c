@@ -62,14 +62,14 @@
 #define Max_stabili_angle  15.0f
 
 float Kp_outer = 0.01;
-float Kd_outer = 0.007;
+float Kd_outer = 0.008; // 0.007
 float Ki_outer = 0.0001; //0.01f
 
 //float Kp_iner = 1000.0;
 //float Kd_iner = 65.0;
 
 float Kp_iner = 500.0;
-float Kd_iner = 60.0;
+float Kd_iner = 65.0;
 
 /* USER CODE END Includes */
 
@@ -470,14 +470,14 @@ void Swing_up(void)							// energy control
 		}
 	}
 	
-	if (Angle_pen > 357.5f)
+	if (Angle_pen > 358.5f)
 	{
 		Mode = 4;
 		Angle_pen_shift = 360.0f ;
 
 	}
 	
-	if (Angle_pen < 2.5f)
+	if (Angle_pen < 1.5f)
 	{
 		Mode = 4;
 		Angle_pen_shift = 0.0f ;
@@ -507,7 +507,9 @@ void stabilizer(void)						// balencing
 	float u_control;		
 	float angle_ref;		
 	
-	
+	if (positon_ref >  0.1f) positon_ref -= 0.03f;
+	if (positon_ref < -0.1f) positon_ref += 0.03f;
+
 	if ((Angle_pen < Max_stabili_angle || Angle_pen > -Max_stabili_angle) && time < 20)
 	{
 		error_position_tmp = error_position;
@@ -532,8 +534,8 @@ void stabilizer(void)						// balencing
 		
 		u_control = (error * Kp_iner) + (error_dot * Kd_iner) ;
 		Debug = u_control;
-		if (u_control > 3500) u_control = 3500;
-		if (u_control < -3500) u_control = -3500;
+		if (u_control > 4500)  u_control =  4500;
+		if (u_control < -4500) u_control = -4500;
 		Motor_drive( u_control, max_velo);
 
 	}else{
