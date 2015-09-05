@@ -37,6 +37,8 @@
 
 #include "math.h"
 
+#define Wn 0.98f 						// natural frequncy
+
 #define M_PI 3.142857142857143f
 #define Deg2Rad 0.0174603174603175f
 
@@ -47,15 +49,15 @@
 #define step_clock  2000000.0f
 #define step_Per_mm 50.0f      			// step per mm 6.25, 12.5, 25, 50, 100 (full - 1/16)
 
-#define max_acc  1000.0f     			// mm/s^2
-#define max_velo 5000.0f   								// mm/s
+#define max_acc  2500.0f     			// mm/s^2
+#define max_velo 700.0f   				// mm/s
 #define max_displacement 380.0f  		// mm
 
-#define acc_swing_up     1500.0f  		// mm
+#define acc_swing_up     1300.0f  		// mm
 
 #define start_cart_position -190.0f * step_Per_mm * 2.0f 
 
-#define start_swing_upPoint  100
+#define start_swing_upPoint  0
 
 /* USER CODE END Includes */
 
@@ -72,9 +74,9 @@ UART_HandleTypeDef huart1;
 float Debug;
 
 double time = 0;
-
-uint8_t Mode = 0;
-uint8_t inte_cart_enable = 0;
+uint8_t block = 0;									// block swing-up direction													
+uint8_t Mode = 0;								// operation mode 
+uint8_t inte_cart_enable = 0;					// enable or disable intregetion
 float Angle_pen = 180;
 float Angle_pen_dot = 0;
 
@@ -84,8 +86,6 @@ float position_cart_velo = 0;
 float position_cart_acc = 0;
 
 float energy = 0;
-
-float bangbang ;
 
 static float y_data, y_prev_1, y_prev_2;
 static float x_prev_1, x_prev_2;
@@ -116,6 +116,7 @@ void Motor_drive(float tmp_acc, float velo_limit);
 
 void Idle(void);
 void Homing(void);
+void pre_Swing_up(void);
 void Swing_up(void);
 void stabilizer(void);
 
@@ -353,9 +354,10 @@ void Sampling_update (void)
 	Update_encoder();
 	
 	if (Mode == 1) Homing();	
-	if (Mode == 2) Swing_up();	
-	if (Mode == 3) stabilizer();	
-	if (Mode == 4) test();	
+	if (Mode == 2) pre_Swing_up();
+	if (Mode == 3) Swing_up();	
+	if (Mode == 4) stabilizer();	
+	if (Mode == 5) test();	
 }
 
 // mode 0
@@ -380,13 +382,13 @@ void Homing(void)								// go to zero
 	if (_limit_state != 1 && position_cart < start_swing_upPoint)
 	{
 		inte_cart_enable = 0;
-		Motor_drive(-100, 1000); 			// homing
+		Motor_drive(-100, 200); 			// homing
 	}else{
 		  inte_cart_enable = 1;
 			if (position_cart < start_swing_upPoint)
 			{
 				Motor_enable();						// enable motor
-				Motor_drive(1000, 500);
+				Motor_drive(100, 200);
 			}else{
 				Limit_ws_unlock();				// unlock limit 
 				Motor_lock();
@@ -394,46 +396,60 @@ void Homing(void)								// go to zero
 				tmp = Moving_average(Angle_pen_dot, tmp);
 				if (tmp < 0.34f && tmp > -0.34f)
 				{
-//					Angle_pen = 180;
+					time = 0;							// reset time
 					Mode = 2;									// goto mode 2 Swing_up
 					Motor_enable();						// enable motor
 					reset_filter();
 					position_cart_velo = 0;
 				}
 			}
-		
 	}
+	block = 1;
 }
 
 // mode 2
+void pre_Swing_up(void)							// Feed forward
+{
+	blink_red();
+	float force = -900.0f * cosf ( time * M_PI * 2.0f / Wn ) ;
+	Motor_drive(force, max_velo);
+	Debug =  force;
+}
+
+// mode 3
 void Swing_up(void)							// energy control
 {
+
 	float poten = cosf(Angle_pen*Deg2Rad);
 	float kine  = fabsf(Angle_pen_dot);
-
-//	float bangbang ;
+	float bangbang ;
 	
 	blink_red();
 	
 	energy =  poten + kine;  // mgh + (1/2)mv^2
 	bangbang = poten * Angle_pen_dot;//* Angle_pen_dot ;//* kine;
 	
-	if (bangbang > 0.005f || bangbang < -0.005f)
+	if (block == 1 && Angle_pen_dot > 25 && Angle_pen < 0) block = 0;
+	
+	if (block == 0)
 	{
-			if (bangbang > 0)
-			{
-				Motor_drive(acc_swing_up, 500); 
-			}else{
-				Motor_drive( -acc_swing_up, 500);
-			}
-	}else{
-			Motor_drive(0 , 1000);
+		if (bangbang > 0.005f || bangbang < -0.005f)
+		{
+				if (bangbang > 0)
+				{
+					Motor_drive(acc_swing_up, max_velo); 
+				}else{
+					Motor_drive( -acc_swing_up, max_velo);
+				}
+		}else{
+				Motor_drive(0 , max_velo);
+		}
 	}
 	
-//	if (Angle_pen > 360 || Angle_pen < 0) Mode = 3;
+//	if (Angle_pen > 360 || Angle_pen < 0) Mode = 4;
 }
 
-// mode 3
+// mode 4
 void stabilizer(void)						// balencing
 {
 	blink_green();  
@@ -442,8 +458,8 @@ void stabilizer(void)						// balencing
 			
 void test(void)						// balencing
 {
-	float force = -600.0f * cosf ( time * M_PI * 1.0f *( 1.0f + time/20.0f) ) ;
-	Motor_drive(force, 2000);
+	float force = -2000.0f * cosf ( time * M_PI * 1.0f *( 1.0f + time/20.0f) ) ;
+	Motor_drive(force, max_velo);
 	Debug =  force;
 }
 
@@ -466,6 +482,7 @@ void Update_encoder(void)
 	
 	Angle_pen += (float)tmp * Revo_Per_Step;
 	Angle_pen_dot = Butterworth_filter((Angle_pen - prev_angle) * sampling);
+//	Debug = (Angle_pen - prev_angle) * sampling;
 }
 
 float Moving_average(float new_data, float old_data)
@@ -511,12 +528,12 @@ void Motor_drive(float tmp_acc, float velo_limit)
 	float tmp_velo = 0;
 	float tmp_abs_velo = 0;
 	float velo_trim  = 0;
-	float tmp_position_cart  = 0;
+
 	
-		if (Mode == 2 || Mode == 4)
+		if (Mode == 2 || Mode == 3 || Mode == 4)
 		{
 			velo_trim = (- position_cart * 0.2f) - position_cart_velo *0.25f   ;
-			Debug = velo_trim ; 
+
 
 		}else{
 			velo_trim = 0;
@@ -539,7 +556,13 @@ void Motor_drive(float tmp_acc, float velo_limit)
 	if (tmp_abs_velo > velo_limit)
 	{
 		tmp_abs_velo = velo_limit;
-		position_cart_velo = velo_limit;
+		
+		if (position_cart_velo > 0)
+		{
+			position_cart_velo = velo_limit;		// protection
+		}else{
+			position_cart_velo = -velo_limit; 
+		}
 	}
 
 	position_cart =  raw_position_cart / (step_Per_mm *2.0f);	
