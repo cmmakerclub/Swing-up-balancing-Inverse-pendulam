@@ -61,11 +61,12 @@
 
 #define Max_stabili_angle  20
 
-#define Kp_outer  0
-#define Ki_outer  0
+float Kp_outer = 0.01;
+float Kd_outer = 0.007;
+float Ki_outer = 0.0001; //0.01f
 
-float Kp_iner = 500;
-float Kd_iner = 0;
+float Kp_iner = 1000.0;
+float Kd_iner = 65.0;
 
 
 /* USER CODE END Includes */
@@ -150,8 +151,13 @@ void test(void);
 
 int main(void)
 {
-
+	
   /* USER CODE BEGIN 1 */
+	
+	inte_cart_enable = 1;
+	raw_position_cart = 0;
+	
+	
 	position_cart = raw_position_cart / (step_Per_mm *2.0f);	
   /* USER CODE END 1 */
 
@@ -476,25 +482,40 @@ void stabilizer(void)						// balencing
 	
 	blink_green();  
 	blink_red();
+	static float error_position_tmp;	
+	static float error_position;	
+	static float error_position_dot;	
+	static float error_position_sum;	
 	static float error;	
 	static float error_tmp;
 	static float error_dot;	
 	static float error_sum;
 	static float u_control;
+	static float positon_ref;	
+	static float angle_ref;		
 	
 	
 	if (Angle_pen < Max_stabili_angle || Angle_pen > -Max_stabili_angle)
 	{
-		error_tmp = error;
+		error_position_tmp = error_position;
+		error_position = position_cart - positon_ref;
+		error_position_dot = (error_position - error_position_tmp )* sampling ;
+		error_position_sum += error_position / sampling;
 		
-		error = -(Angle_pen - Angle_pen_shift);
+		angle_ref = (error_position * Kp_outer) + (error_position_dot * Kd_outer) + (error_position_sum * Ki_outer);
+	
+		
+		 
+		error_tmp = error;
+
+		error = angle_ref-(Angle_pen - Angle_pen_shift);
 		error_dot = (error - error_tmp) * sampling;
 
 		error_sum += error_tmp / sampling ;
 		
 		
 		
-		u_control = (error * Kd_iner) + (error_dot * Kd_iner) ;
+		u_control = (error * Kp_iner) + (error_dot * Kd_iner) ;
 		Motor_drive( u_control, max_velo);
 		
 		
