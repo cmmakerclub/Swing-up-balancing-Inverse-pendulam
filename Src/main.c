@@ -60,6 +60,7 @@
 #define start_swing_upPoint  0
 
 #define Max_stabili_angle  15.0f
+#define inertial_energy_top  93.5f			// limit inertial energy in pendulum
 
 float Kp_outer = 0.01;
 float Kd_outer = 0.008; // 0.007
@@ -84,7 +85,7 @@ UART_HandleTypeDef huart1;
 /* Private variables ---------------------------------------------------------*/
 
 float Debug;
-
+float aaa;
 float time = 0;
 uint8_t block = 0;									// block swing-up direction													
 uint8_t Mode = 0;								// operation mode 
@@ -452,14 +453,14 @@ void Swing_up(void)							// energy control
 	float Angle_pen_dot_Rad = Angle_pen_dot*Deg2Rad;
 	float poten = cosf(Angle_pen*Deg2Rad);
 	
-	float energy = poten + Angle_pen_dot_Rad*Angle_pen_dot_Rad;
+	float energy = (87.0f * poten) + (Angle_pen_dot_Rad*Angle_pen_dot_Rad);  // tuning gain for Ep 
 	Debug = energy;
 	blink_red();
 	
 	float bangbang = poten * Angle_pen_dot;
 	
 	{
-		if (bangbang > 0.005f || bangbang < -0.005f)
+		if ((bangbang > 0.005f || bangbang < -0.005f) && energy < inertial_energy_top)   // limit energy in pendulum
 		{
 				if (bangbang > 0)
 				{
@@ -687,9 +688,12 @@ void Limit_ws_check(void)
 		
 		if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_SET)
 		{
-			Motor_lock();
-			_limit_state = 2;
-			position_cart_velo = 0;
+			if (Mode != 1)
+			{
+				Motor_lock();
+				_limit_state = 2;
+				position_cart_velo = 0;
+			}
 		}
 	}
 	
